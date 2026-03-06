@@ -1,0 +1,1533 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<title>Stage 3 · mediasoup SFU</title>
+<!-- <script src="https://cdn.jsdelivr.net/npm/mediasoup-client@3/dist/mediasoup-client.min.js"></script> -->
+<style>
+:root {
+  --bg:#080b10; --surface:#0e1318; --border:#1a2130;
+  --accent:#00d4ff; --green:#00ff88; --yellow:#fbbf24;
+  --red:#f87171; --orange:#fb923c; --purple:#a78bfa;
+  --text:#cbd5e1; --dim:#3d4f63;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;
+  height:100vh;display:grid;grid-template-rows:52px 1fr;overflow:hidden}
+
+/* Header */
+header{background:var(--surface);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 20px;gap:14px}
+.badge{font-size:10px;font-weight:700;letter-spacing:3px;color:var(--accent);
+  border:1px solid var(--accent);padding:2px 8px}
+header h1{font-size:15px;font-weight:800;color:#fff}
+.hright{margin-left:auto;display:flex;align-items:center;gap:16px;font-size:11px}
+.wdot{width:8px;height:8px;border-radius:50%;background:var(--dim);transition:background .3s}
+.wdot.on{background:var(--green);animation:pulse 2s infinite}
+.wdot.warn{background:var(--yellow);animation:pulse 1s infinite}
+.wdot.err{background:var(--red)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* Layout */
+main{display:grid;grid-template-columns:1fr 380px;overflow:hidden}
+
+/* 左侧 */
+.left{display:grid;grid-template-rows:1fr auto;border-right:1px solid var(--border);overflow:hidden}
+
+/* 视频网格 */
+.vgrid{display:grid;gap:2px;background:#000;overflow:hidden}
+.vgrid.n1{grid-template-columns:1fr;grid-template-rows:1fr}
+.vgrid.n2{grid-template-columns:1fr 1fr;grid-template-rows:1fr}
+.vgrid.n3,.vgrid.n4{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
+.vgrid.n5,.vgrid.n6{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr)}
+.vbox{position:relative;overflow:hidden;background:#0a0a0a;min-height:0}
+.vbox video{width:100%;height:100%;object-fit:cover;display:block}
+.vlabel{position:absolute;top:8px;left:8px;font-size:9px;font-weight:700;
+  letter-spacing:2px;text-transform:uppercase;color:var(--accent);
+  background:rgba(0,0,0,.8);border:1px solid rgba(0,212,255,.3);padding:2px 8px}
+.vstate{position:absolute;bottom:8px;left:8px;font-size:9px;
+  color:var(--dim);background:rgba(0,0,0,.7);padding:2px 6px}
+.qbadge{position:absolute;bottom:8px;right:8px;font-size:9px;
+  padding:2px 6px;background:rgba(0,0,0,.7);border-left:2px solid var(--dim);
+  color:var(--dim);transition:all .3s}
+.qbadge.good{border-color:var(--green);color:var(--green)}
+.qbadge.med{border-color:var(--yellow);color:var(--yellow)}
+.qbadge.poor{border-color:var(--red);color:var(--red)}
+/* ICE 状态覆盖层 */
+.ice-overlay{display:none;position:absolute;inset:0;background:rgba(0,0,0,.7);
+  align-items:center;justify-content:center;font-size:11px;color:var(--yellow);
+  letter-spacing:1px;text-transform:uppercase}
+.ice-overlay.show{display:flex}
+
+/* 控制面板 */
+.ctrl{background:var(--surface);border-top:1px solid var(--border);
+  padding:12px 16px;display:flex;flex-direction:column;gap:8px}
+.flow{display:flex;align-items:center;gap:0;overflow-x:auto}
+.fs{padding:3px 10px;border:1px solid var(--border);color:var(--dim);
+  font-size:9px;letter-spacing:1px;text-transform:uppercase;
+  white-space:nowrap;transition:all .2s}
+.fa{color:var(--dim);padding:0 3px}
+.fs.active{border-color:var(--accent);color:var(--accent)}
+.fs.done{border-color:var(--green);color:var(--green)}
+.row{display:flex;gap:8px;align-items:flex-end}
+.field{display:flex;flex-direction:column;gap:4px;flex:1}
+.field label{font-size:9px;letter-spacing:1px;color:var(--dim);text-transform:uppercase}
+input[type=text]{background:var(--bg);border:1px solid var(--border);
+  color:var(--text);font-family:inherit;font-size:11px;
+  padding:7px 10px;outline:none;width:100%;transition:border-color .2s}
+input[type=text]:focus{border-color:var(--accent)}
+.brow{display:flex;gap:6px;flex-wrap:wrap}
+button{font-family:inherit;font-size:10px;font-weight:700;letter-spacing:1px;
+  text-transform:uppercase;padding:7px 14px;background:transparent;
+  border:1px solid var(--border);color:var(--dim);cursor:pointer;transition:all .15s}
+button:not(:disabled):hover{color:var(--text);border-color:var(--text)}
+button.blue{border-color:var(--accent);color:var(--accent)}
+button.green{border-color:var(--green);color:var(--green)}
+button.red{border-color:var(--red);color:var(--red)}
+button.yellow{border-color:var(--yellow);color:var(--yellow)}
+button.orange{border-color:var(--orange);color:var(--orange)}
+button:disabled{opacity:.2;cursor:not-allowed}
+
+/* 右侧 */
+.right{display:grid;grid-template-rows:auto auto 1fr auto;overflow:hidden}
+
+/* 参与者 */
+.peers-panel{border-bottom:1px solid var(--border);background:var(--surface);
+  max-height:180px;overflow-y:auto}
+.panel-title{padding:7px 14px;font-size:9px;letter-spacing:2px;
+  text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--border);
+  display:flex;justify-content:space-between}
+.peer-item{padding:7px 14px;display:flex;align-items:center;gap:8px;
+  border-bottom:1px solid rgba(255,255,255,.03);font-size:11px;
+  animation:fi .2s ease}
+@keyframes fi{from{opacity:0;transform:translateX(-4px)}to{opacity:1;transform:none}}
+.pdot{width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0}
+.pdot.local{background:var(--accent)}
+.pdot.warn{background:var(--yellow);animation:pulse 1s infinite}
+.pdot.disconnected{background:var(--red)}
+.pname{flex:1}
+.ptracks{font-size:9px;color:var(--dim)}
+
+/* 实时统计面板 */
+.stats-panel{border-bottom:1px solid var(--border);background:var(--surface);padding:8px 14px}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.stat-item{display:flex;flex-direction:column;gap:2px}
+.stat-label{font-size:8px;letter-spacing:1px;text-transform:uppercase;color:var(--dim)}
+.stat-val{font-size:12px;font-weight:700;color:var(--green);transition:color .3s}
+.stat-val.warn{color:var(--yellow)}
+.stat-val.crit{color:var(--red)}
+
+/* 日志 */
+.logarea{display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.logtb{background:var(--surface);border-bottom:1px solid var(--border);
+  padding:7px 14px;display:flex;align-items:center;gap:8px;flex-shrink:0}
+.logtb span{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--dim)}
+.ldot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+#logEl{flex:1;overflow-y:auto;padding:4px;
+  scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.entry{display:grid;grid-template-columns:58px 44px 1fr;gap:4px;
+  padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.02);
+  font-size:10px;line-height:1.6;animation:fi .15s ease}
+.et{color:var(--dim);font-size:9px}
+.eg{font-size:8px;font-weight:700;letter-spacing:1px;text-align:right}
+.em{word-break:break-all}
+.cw{color:var(--accent)}.cs{color:var(--orange)}.ci{color:var(--yellow)}
+.cm{color:var(--green)}.cr{color:var(--purple)}.cp{color:#f0abfc}.ce{color:var(--red)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="badge">Stage 3</div>
+  <h1>mediasoup SFU · 多人会议</h1>
+  <div class="hright">
+    <div style="display:flex;align-items:center;gap:6px">
+      <div class="wdot" id="wsDot"></div>
+      <span id="wsLabel">未连接</span>
+    </div>
+    <span id="iceLabel" style="color:var(--dim);font-size:10px">ICE: —</span>
+    <span id="roomLabel" style="color:var(--dim)">—</span>
+  </div>
+</header>
+
+<main>
+  <div class="left">
+    <div class="vgrid n1" id="vgrid"></div>
+    <div class="ctrl">
+      <!-- 流程步骤 -->
+      <div class="flow">
+        <div class="fs" id="f1">① 连接</div><div class="fa">→</div>
+        <div class="fs" id="f2">② 能力</div><div class="fa">→</div>
+        <div class="fs" id="f3">③ 加入</div><div class="fa">→</div>
+        <div class="fs" id="f4">④ Transport</div><div class="fa">→</div>
+        <div class="fs" id="f5">⑤ 发布</div><div class="fa">→</div>
+        <div class="fs" id="f6">⑥ 订阅</div><div class="fa">→</div>
+        <div class="fs" id="f7">⑦ 通话中</div>
+      </div>
+      <!-- 配置 -->
+      <div class="row">
+        <div class="field" style="flex:2">
+          <label>信令服务器</label>
+          <input type="text" id="serverUrl" />
+        </div>
+        <div class="field">
+          <label>房间 ID</label>
+          <input type="text" id="roomId" value="room-001" />
+        </div>
+        <div class="field">
+          <label>我的名称</label>
+          <input type="text" id="peerId" />
+        </div>
+      </div>
+      <!-- 主操作 -->
+      <div class="brow">
+        <button class="blue"   id="btnJoin"  onclick="doJoin()">加入会议</button>
+        <button class="orange" id="btnCam"   onclick="toggleCam()"  disabled>开启摄像头</button>
+        <button class="orange" id="btnMic"   onclick="toggleMic()"  disabled>开启麦克风</button>
+        <button class="yellow" id="btnMute"  onclick="toggleMute()" disabled>静音</button>
+        <button class="red"    id="btnLeave" onclick="doLeave()"    disabled>离开</button>
+      </div>
+      <!-- 网络/层控制 -->
+      <div class="brow">
+        <button id="btnLayerH" onclick="setLayer(2)" disabled>高清层</button>
+        <button id="btnLayerM" onclick="setLayer(1)" disabled>中清层</button>
+        <button id="btnLayerL" onclick="setLayer(0)" disabled>低清层</button>
+        <button id="btnAuto"   onclick="setLayer(-1)" disabled>自动</button>
+        <button id="btnIceRestart" onclick="doIceRestart()" disabled>ICE重启</button>
+        <button onclick="exportReport()">导出报告</button>
+        <button onclick="clearLog()">清空</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="right">
+    <!-- 参与者列表 -->
+    <div class="peers-panel">
+      <div class="panel-title">
+        <span>参与者</span><span id="peerCount">0人</span>
+      </div>
+      <div id="peerList"></div>
+    </div>
+
+    <!-- 实时统计 -->
+    <div class="stats-panel">
+      <div class="panel-title" style="border:none;padding:0 0 6px 0">
+        <span>实时指标</span>
+        <span id="monitorStatus" style="color:var(--dim)">未监控</span>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-label">丢包率</div>
+          <div class="stat-val" id="sLoss">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">RTT</div>
+          <div class="stat-val" id="sRtt">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Jitter Buffer</div>
+          <div class="stat-val" id="sJitter">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">帧率</div>
+          <div class="stat-val" id="sFps">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">NACK 累计</div>
+          <div class="stat-val" id="sNack">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">PLI 累计</div>
+          <div class="stat-val" id="sPli">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">当前层</div>
+          <div class="stat-val" id="sLayer">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">码率限制</div>
+          <div class="stat-val" id="sQLimit">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 日志 -->
+    <div class="logarea">
+      <div class="logtb">
+        <div class="ldot"></div>
+        <span>事件流</span>
+      </div>
+      <div id="logEl"></div>
+    </div>
+  </div>
+</main>
+
+<script type="module">
+// ══════════════════════════════════════════════════════
+//  初始化
+// ══════════════════════════════════════════════════════
+import * as mediasoupClient from "mediasoup-client";
+
+document.getElementById('serverUrl').value = 'wss://' + location.hostname + ':8444';
+document.getElementById('peerId').value    = 'user-' + Math.random().toString(36).slice(2,6);
+
+// ══════════════════════════════════════════════════════
+//  日志
+// ══════════════════════════════════════════════════════
+function log(tag, msg, cls='cw') {
+  const el  = document.getElementById('logEl');
+  const now = new Date();
+  const t   = String(now.getMinutes()).padStart(2,'0') + ':' +
+              String(now.getSeconds()).padStart(2,'0') + '.' +
+              String(now.getMilliseconds()).padStart(3,'0');
+  const row = document.createElement('div');
+  row.className = 'entry';
+  row.innerHTML = `<span class="et">${t}</span><span class="eg ${cls}">${tag}</span><span class="em">${msg}</span>`;
+  el.appendChild(row);
+  if (el.children.length > 200) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+function clearLog() { document.getElementById('logEl').innerHTML = ''; }
+
+function setFlow(n) {
+  for (let i=1;i<=7;i++) {
+    document.getElementById('f'+i).className =
+      'fs'+(i<n?' done':i===n?' active':'');
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  核心状态
+// ══════════════════════════════════════════════════════
+let ws=null, device=null, sendTransport=null, recvTransport=null;
+let camProducer=null, micProducer=null;
+let camStream=null, micStream=null;
+const consumers   = new Map();   // consumerId → consumer
+const remotePeers = new Map();   // peerId → { producers:[] }
+let myPeerId='', myRoomId='';
+let camOn=false, micOn=false, muted=false;
+let autoLayer=true, currentLayer=2;
+
+// 监控相关
+let monitorTimer=null;
+const statsHistory = [];
+const MAX_HISTORY  = 120;
+
+// ICE 重连相关
+let iceRestartTimer   = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT   = 3;
+
+// WSS 重连相关
+let wsReconnectTimer   = null;
+let wsReconnectCount   = 0;
+const MAX_WS_RECONNECT = 5;
+let isReconnecting     = false;  // 防止重入
+let serverUrl          = '';     // 记住服务器地址
+
+// ══════════════════════════════════════════════════════
+//  信令层（requestId 模式）
+// ══════════════════════════════════════════════════════
+const pendingReqs = new Map();
+let _reqId = 0;
+
+const PUSH_EVENTS = new Set([
+  'peerJoined','peerLeft','newProducer',
+  'consumerClosed','consumerPaused','consumerResumed2',
+  'consumerLayersChanged','producerScore','consumerScore',
+  'transportIceState',
+]);
+
+function onWsMessage(raw) {
+  const msg = JSON.parse(raw);
+  if (PUSH_EVENTS.has(msg.type)) { handlePush(msg); return; }
+  if (msg.type === 'error') {
+    log('ERR', msg.message, 'ce');
+    pendingReqs.forEach(({reject, timer}, id) => {
+      clearTimeout(timer); reject(new Error(msg.message)); pendingReqs.delete(id);
+    });
+    return;
+  }
+  if (msg.requestId !== undefined) {
+    const p = pendingReqs.get(msg.requestId);
+    if (p) { clearTimeout(p.timer); p.resolve(msg); pendingReqs.delete(msg.requestId); return; }
+  }
+  // fallback: FIFO 匹配
+  for (const [id, p] of pendingReqs) {
+    if (p.responseType === msg.type) {
+      clearTimeout(p.timer); p.resolve(msg); pendingReqs.delete(id); return;
+    }
+  }
+}
+
+function wsSend(data) {
+  if (ws?.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(data));
+    log('→', data.type, 'cs');
+  }
+}
+
+function wsRequest(data, responseType, timeout=10000) {
+  return new Promise((resolve, reject) => {
+    const requestId = ++_reqId;
+    data.requestId  = requestId;
+    const timer = setTimeout(() => {
+      pendingReqs.delete(requestId);
+      reject(new Error(responseType + ' 超时'));
+    }, timeout);
+    pendingReqs.set(requestId, { resolve, reject, timer, responseType });
+    wsSend(data);
+  });
+}
+
+// ══════════════════════════════════════════════════════
+//  服务端推送事件
+// ══════════════════════════════════════════════════════
+async function handlePush(msg) {
+  switch(msg.type) {
+
+    case 'peerJoined':
+      log('ROOM', '新成员: ' + msg.peerId, 'cr');
+      remotePeers.set(msg.peerId, { id:msg.peerId, producers:[] });
+      addPeerToList(msg.peerId, false);
+      break;
+
+    case 'peerLeft':
+      log('ROOM', '成员离开: ' + msg.peerId, 'cr');
+      remotePeers.delete(msg.peerId);
+      removePeerFromList(msg.peerId);
+      removeRemoteVideo(msg.peerId);
+      break;
+
+    case 'newProducer':
+      log('ROOM', '新流: peer=' + msg.peerId + ' kind=' + msg.kind, 'cr');
+      const peer = remotePeers.get(msg.peerId);
+      if (peer) {
+        peer.producers = peer.producers || [];
+        peer.producers.push({ id:msg.producerId, kind:msg.kind });
+        updatePeerTracks(msg.peerId, msg.kind, true);
+      }
+      await subscribeToProducer(msg.peerId, msg.producerId, msg.kind);
+      break;
+
+    case 'consumerClosed':
+      log('MEDIA', 'Consumer 关闭 id=' + msg.consumerId.slice(0,8), 'cm');
+      consumers.get(msg.consumerId)?.close();
+      consumers.delete(msg.consumerId);
+      break;
+
+    case 'consumerLayersChanged':
+      if (msg.layers) {
+        const l = msg.layers;
+        log('MEDIA', '层切换 spatial=' + l.spatialLayer + ' temporal=' + l.temporalLayer, 'cm');
+        document.getElementById('sLayer').textContent =
+          l.spatialLayer + '/' + l.temporalLayer;
+      }
+      break;
+      //这种类型啥也不处理？
+    case 'producerScore': break;
+    case 'consumerScore':
+      if (autoLayer) autoAdjustLayer(msg.consumerId, msg.score);
+      break;
+
+    // ★ 服务端 Transport ICE 状态变化
+    case 'transportIceState':
+      handleTransportIceState(msg.transportId, msg.state);
+      break;
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  ICE 状态处理（核心异常处理逻辑）
+// 传输通道rtp通道异常问题 通过底层状态识别，然后进行处理
+// ══════════════════════════════════════════════════════
+function handleTransportIceState(transportId, state) {
+  log('ICE', 'Transport ICE → ' + state, 'ci');
+  document.getElementById('iceLabel').textContent = 'ICE: ' + state;
+
+  if (state === 'disconnected') {
+    document.getElementById('wsDot').className = 'wdot warn';
+    clearTimeout(iceRestartTimer);
+    iceRestartTimer = setTimeout(() => {
+      // ★ WSS 断了就走 WSS 重连，不走 ICE Restart
+      if (!isWsOpen()) {
+        log('ICE', 'WSS 已断开，走 WSS 重连而非 ICE Restart', 'ci');
+        handleWsDisconnect({ code: 0 });
+        return;
+      }
+      log('ICE', 'ICE disconnected 超时，尝试 ICE Restart...', 'ci');
+      doIceRestart();
+    }, 5000);
+  }
+
+  if (state === 'failed') {
+    clearTimeout(iceRestartTimer);
+    // ★ WSS 断了就走 WSS 重连
+    if (!isWsOpen()) {
+      log('ICE', 'ICE failed + WSS 断开，走 WSS 重连', 'ce');
+      handleWsDisconnect({ code: 0 });
+      return;
+    }
+    log('ICE', 'ICE failed，立即 ICE Restart', 'ce');
+    doIceRestart();
+  }
+
+  if (state === 'connected' || state === 'completed') {
+    clearTimeout(iceRestartTimer);
+    reconnectAttempts = 0;
+    document.getElementById('wsDot').className = 'wdot on';
+    document.getElementById('iceLabel').textContent = 'ICE: OK';
+    log('ICE', '✓ ICE 连接恢复', 'cm');
+  }
+}
+
+// WSS 是否正常开着
+function isWsOpen() {
+  return ws && ws.readyState === WebSocket.OPEN;
+}
+
+async function doIceRestart() {
+  // 再次检查 WSS（双重保险）
+  if (!isWsOpen()) {
+    log('ICE', 'doIceRestart: WSS 已断，转 WSS 重连', 'ci');
+    handleWsDisconnect({ code: 0 });
+    return;
+  }
+  if (reconnectAttempts >= MAX_RECONNECT) {
+    log('ICE', 'ICE Restart 次数上限，转 WSS 重连', 'ci');
+    handleWsDisconnect({ code: 0 });
+    return;
+  }
+  reconnectAttempts++;
+  log('ICE', 'ICE Restart ' + reconnectAttempts + '/' + MAX_RECONNECT, 'ci');
+
+  try {
+    if (sendTransport) {
+      const resp = await wsRequest(
+        { type:'restartIce', transportId:sendTransport.id },
+        'iceRestarted', 5000
+      );
+      await sendTransport.restartIce({ iceParameters:resp.iceParameters });
+      log('ICE', '✓ sendTransport ICE Restart 完成', 'cm');
+    }
+    if (recvTransport) {
+      const resp = await wsRequest(
+        { type:'restartIce', transportId:recvTransport.id },
+        'iceRestarted', 5000
+      );
+      await recvTransport.restartIce({ iceParameters:resp.iceParameters });
+      log('ICE', '✓ recvTransport ICE Restart 完成', 'cm');
+    }
+  } catch(err) {
+    log('ICE', 'ICE Restart 失败: ' + err.message + '，转 WSS 重连', 'ce');
+    // ICE Restart 失败了，说明网络变化较大，直接走 WSS 重连
+    handleWsDisconnect({ code: 0 });
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  主流程
+// ══════════════════════════════════════════════════════
+async function doJoin() {
+  myPeerId  = document.getElementById('peerId').value.trim();
+  myRoomId  = document.getElementById('roomId').value.trim();
+  serverUrl = document.getElementById('serverUrl').value.trim();
+
+  document.getElementById('btnJoin').disabled = true;
+  wsReconnectCount = 0;
+  log('STEP', '连接 ' + serverUrl, 'cp');
+  setFlow(1);
+
+  connectWs(true);   // 首次连接
+}
+
+// ── 建立 WebSocket 连接（首次 + 重连复用）──
+function connectWs(isFirst) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+
+  ws = new WebSocket(serverUrl);
+  ws.onmessage = ({ data }) => onWsMessage(data);
+
+  ws.onopen = async () => {
+    wsReconnectCount = 0;
+    clearTimeout(wsReconnectTimer);
+    document.getElementById('wsDot').className     = 'wdot on';
+    document.getElementById('wsLabel').textContent = '已连接';
+
+    if (isFirst) {
+      // 首次连接：走完整 joinFlow
+      log('WS', '✓ 连接成功', 'cw');
+      try { await joinFlow(); }
+      catch(err) {
+        log('ERR', err.message, 'ce');
+        document.getElementById('btnJoin').disabled = false;
+      }
+    } else {
+      // 重连：走恢复流程 这里共用的join指令所以一直出现问题，join会判断是否在房间
+      log('WS', '✓ WSS 重连成功，恢复会话...', 'cm');
+      isReconnecting = false;
+      // WSS 已通，直接重试 rejoin，不要再走 WSS 重连
+      await retryRejoin();
+    }
+  };
+
+  ws.onerror = () => {
+    log('WS', '✗ 连接错误', 'ce');
+    document.getElementById('wsDot').className = 'wdot err';
+  };
+
+  ws.onclose = (evt) => {
+    document.getElementById('wsDot').className     = 'wdot err';
+    document.getElementById('wsLabel').textContent = '断开';
+
+    // 通话中断开（不管是第几次连接）→ 触发重连
+    // 用 myPeerId/myRoomId 判断是否正在通话中
+    // doLeave 会把它们清空，所以主动离开不会触发重连
+    if (myPeerId && myRoomId) {
+      handleWsDisconnect(evt);
+      return;
+    }
+    // 加入前连接失败（isFirst=true 且还没 join）
+    if (isFirst) {
+      log('WS', '✗ 连接失败', 'ce');
+      document.getElementById('btnJoin').disabled = false;
+    }
+  };
+}
+
+// ── WSS 断开处理（ws.onclose 和 ICE 失败都会调用）──
+function handleWsDisconnect(evt) {
+  if (isReconnecting) return;   // 防重入
+  if (!myPeerId || !myRoomId) return;  // 还没加入 or 已主动离开
+  isReconnecting = true;
+
+  // 1. 拒绝所有 pending 请求（不能再等响应了）
+  pendingReqs.forEach(({ reject, timer }) => {
+    clearTimeout(timer);
+    reject(new Error('WSS 断开'));
+  });
+  pendingReqs.clear();
+
+  // 2. 清理旧的 Transport（服务端已经把 Peer 移除了）
+  //    但保留 camStream / micStream（摄像头麦克风不关）
+  sendTransport?.close();
+  recvTransport?.close();
+  sendTransport = null;
+  recvTransport = null;
+  camProducer   = null;
+  micProducer   = null;
+
+  // 3. 清理 Consumer（远端流会断）
+  consumers.forEach(c => c.close());
+  consumers.clear();
+
+  log('WS', 'WSS 断开 code=' + evt.code + '，准备重连...', 'ce');
+  document.getElementById('iceLabel').textContent = 'ICE: —';
+
+  scheduleWsReconnect();
+}
+
+// ── WSS 通了但 rejoin 逻辑失败，在当前连接上重试 ──
+let rejoinRetryCount   = 0;
+const MAX_REJOIN_RETRY = 3;
+
+async function retryRejoin() {
+  rejoinRetryCount = 0;
+  await doRejoinWithRetry();
+}
+
+async function doRejoinWithRetry() {
+  if (rejoinRetryCount >= MAX_REJOIN_RETRY) {
+    log('ERR', 'rejoin 重试次数已达上限，请手动重新加入', 'ce');
+    document.getElementById('btnJoin').disabled = false;
+    // 清空状态，让用户重新点加入
+    myPeerId = '';
+    myRoomId = '';
+    return;
+  }
+
+  rejoinRetryCount++;
+  const delay = rejoinRetryCount === 1 ? 0 : 1000 * (rejoinRetryCount - 1);
+  if (delay > 0) {
+    log('STEP', 'rejoin 第 ' + rejoinRetryCount + '/' + MAX_REJOIN_RETRY +
+        ' 次重试，等待 ' + (delay/1000) + 's...', 'ci');
+    await new Promise(r => setTimeout(r, delay));
+  }
+
+  // 检查 WSS 是否还在（等待期间可能又断了）
+  if (!isWsOpen()) {
+    log('STEP', 'rejoin 等待期间 WSS 又断了，转 WSS 重连', 'ci');
+    handleWsDisconnect({ code: 0 });
+    return;
+  }
+
+  try {
+    await rejoinFlow();
+  } catch(err) {
+    log('ERR', 'rejoin 失败(' + rejoinRetryCount + '): ' + err.message, 'ce');
+    await doRejoinWithRetry();
+  }
+}
+
+// ── 指数退避重连 ──
+function scheduleWsReconnect() {
+  if (wsReconnectCount >= MAX_WS_RECONNECT) {
+    log('WS', '重连次数已达上限（' + MAX_WS_RECONNECT + '次），请手动重新加入', 'ce');
+    document.getElementById('btnJoin').disabled = false;
+    isReconnecting = false;
+    return;
+  }
+
+  wsReconnectCount++;
+  // 指数退避：1s 2s 4s 8s 16s
+  const delay = Math.min(1000 * Math.pow(2, wsReconnectCount - 1), 16000);
+  log('WS', '第 ' + wsReconnectCount + '/' + MAX_WS_RECONNECT +
+      ' 次重连，等待 ' + (delay/1000) + 's...', 'ci');
+  document.getElementById('wsLabel').textContent = '重连中(' + wsReconnectCount + ')';
+
+  wsReconnectTimer = setTimeout(() => {
+    connectWs(false);   // 非首次连接
+  }, delay);
+}
+
+// ── WSS 重连后恢复会话 ──
+async function rejoinFlow() {
+  log('STEP', '恢复会话...', 'cp');
+  setFlow(2);
+
+  // Device 可能没有完成 load（断线发生在 joinFlow 中途）
+  // 统一重新走一遍 getRouterRtpCapabilities + load
+  if (!device || !device.loaded) {
+    log('STEP', 'Device 未就绪，重新初始化...', 'ci');
+    const capResp = await wsRequest(
+      { type:'getRouterRtpCapabilities', roomId:myRoomId },
+      'routerRtpCapabilities'
+    );
+    device = new mediasoupClient.Device();
+    await device.load({ routerRtpCapabilities: capResp.rtpCapabilities });
+    log('MEDIA', '✓ Device 重新初始化完成', 'cm');
+  }
+
+  // ★ 发 rejoin 而不是 join
+  //   服务端会尝试复用旧 Peer，回 'rejoined'
+  //   如果 Peer 已被清理则 fallback 回 'joined'
+  // 服务端正常回 'rejoined'，fallback 时回 'joined'
+  // wsRequest 只能等一种类型，用 'rejoined' 但在 onWsMessage 里把 'joined' 也路由进来
+  const resp = await wsRequest({
+    type:            'rejoin',
+    roomId:          myRoomId,
+    peerId:          myPeerId,
+    rtpCapabilities: device.rtpCapabilities,
+  }, 'rejoined');
+
+  const isRejoin = resp.type === 'rejoined';
+  log('ROOM', (isRejoin ? '✓ 复用旧会话' : '✓ 新建会话') +
+    '，房间有 ' + resp.existingPeers.length + ' 人', 'cr');
+  setFlow(3);
+
+  // 更新参与者列表
+  document.getElementById('peerList').innerHTML = '';
+  remotePeers.clear();
+  addPeerToList(myPeerId, true);
+  resp.existingPeers.forEach(p => {
+    remotePeers.set(p.id, p);
+    addPeerToList(p.id, false);
+  });
+
+  // ── Transport 必须重建（ICE 地址变了）──
+  setFlow(4);
+  await createSendTransport();
+  await createRecvTransport();
+  log('STEP', '✓ Transport 重建完成', 'cp');
+  setFlow(5);
+
+  if (isRejoin) {
+    // ════════════════════════════════════════
+    //  复用路径：服务端 Peer 还在
+    //  Producer 还在 → 只需把新 Transport 和旧 Producer 关联
+    //  Consumer 还在 → resume 即可，不需要重新 consume
+    // ════════════════════════════════════════
+
+    // 重新关联 Producer（把旧 Producer 迁移到新 sendTransport）
+    // mediasoup 不支持直接迁移 Producer 到新 Transport
+    // 必须关闭旧 Producer，在新 Transport 上重新 produce
+    // 但服务端 Peer 上的旧 Producer 仍在，需要先关掉再建新的
+    const myProducers = resp.myProducers || [];
+
+    if (myProducers.length > 0) {
+      // 通知服务端关闭旧 Producer（它们绑在旧 Transport 上）
+      // 服务端重建时会重新广播 newProducer
+      log('STEP', '重新发布 ' + myProducers.length + ' 路流...', 'cp');
+    }
+
+    // 重新 produce（用保留的本地流）
+    await republishLocalStreams();
+
+    // 恢复 Consumer（服务端 Consumer 还在，只需 resume）
+    setFlow(6);
+    const myConsumers = resp.myConsumers || [];
+    if (myConsumers.length > 0) {
+      log('STEP', '恢复 ' + myConsumers.length + ' 路订阅...', 'cp');
+      for (const c of myConsumers) {
+        await resumeExistingConsumer(c);
+      }
+    }
+
+    // 重新订阅（处理断线期间新加入的成员的流）
+    for (const peer of resp.existingPeers) {
+      for (const producer of peer.producers || []) {
+        // 跳过已经在 myConsumers 里的（避免重复订阅）
+        const alreadyHave = resp.myConsumers?.some(c => c.producerId === producer.id);
+        if (!alreadyHave) {
+          removeRemoteVideo(peer.id);
+          await subscribeToProducer(peer.id, producer.id, producer.kind);
+        }
+      }
+    }
+
+  } else {
+    // ════════════════════════════════════════
+    //  新建路径：服务端 Peer 已被清理（fallback to join）
+    //  和首次加入完全一样
+    // ════════════════════════════════════════
+    await republishLocalStreams();
+
+    setFlow(6);
+    for (const [peerId] of remotePeers) removeRemoteVideo(peerId);
+    for (const peer of resp.existingPeers) {
+      for (const producer of peer.producers || []) {
+        await subscribeToProducer(peer.id, producer.id, producer.kind);
+      }
+    }
+  }
+
+  setFlow(7);
+  reconnectAttempts = 0;
+  wsReconnectCount  = 0;
+  rejoinRetryCount  = 0;
+  log('STEP', '✓ 会话恢复完成，通话继续', 'cm');
+}
+
+// ── 重新发布本地流（sendTransport 重建后调用）──
+async function republishLocalStreams() {
+  if (camStream && camStream.getVideoTracks()[0]?.readyState === 'live') {
+    log('STEP', '重新发布摄像头...', 'cp');
+    camProducer = await sendTransport.produce({
+      track: camStream.getVideoTracks()[0],
+      encodings:[
+        { rid:'l', maxBitrate:100_000, scaleResolutionDownBy:4 },
+        { rid:'m', maxBitrate:300_000, scaleResolutionDownBy:2 },
+        { rid:'h', maxBitrate:900_000 },
+      ],
+      codecOptions:{ videoGoogleStartBitrate:1000 },
+      appData:{ type:'camera' }
+    });
+    log('MEDIA', '✓ 摄像头重新发布', 'cm');
+  } else if (camOn) {
+    // camStream track 已失效（切网后 track 可能变 ended）
+    // 重新获取摄像头
+    log('STEP', '摄像头 track 失效，重新获取...', 'ci');
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({
+        video:{ width:1280, height:720, frameRate:30 }, audio:false
+      });
+      updateLocalVideo();
+      camProducer = await sendTransport.produce({
+        track: camStream.getVideoTracks()[0],
+        encodings:[
+          { rid:'l', maxBitrate:100_000, scaleResolutionDownBy:4 },
+          { rid:'m', maxBitrate:300_000, scaleResolutionDownBy:2 },
+          { rid:'h', maxBitrate:900_000 },
+        ],
+        codecOptions:{ videoGoogleStartBitrate:1000 },
+        appData:{ type:'camera' }
+      });
+      log('MEDIA', '✓ 摄像头重新获取并发布', 'cm');
+    } catch(e) {
+      log('ERR', '重新获取摄像头失败: ' + e.message, 'ce');
+      camOn = false;
+      document.getElementById('btnCam').textContent = '开启摄像头';
+      document.getElementById('btnCam').className   = 'orange';
+    }
+  }
+
+  if (micStream && micStream.getAudioTracks()[0]?.readyState === 'live') {
+    log('STEP', '重新发布麦克风...', 'cp');
+    micProducer = await sendTransport.produce({
+      track:   micStream.getAudioTracks()[0],
+      appData: { type:'microphone' }
+    });
+    if (muted) {
+      micStream.getAudioTracks().forEach(t => t.enabled = false);
+    }
+    log('MEDIA', '✓ 麦克风重新发布', 'cm');
+  }
+}
+
+// ── 恢复服务端的 Consumer（rejoin 专用）──
+// 服务端关闭旧 Transport 时 Consumer 已被自动 close
+// 所以这里直接重新 subscribe 即可
+async function resumeExistingConsumer(consumerInfo) {
+  // consumerInfo 里带有 peerId（服务端返回的）
+  const producerPeerId = consumerInfo.peerId || findPeerIdByProducerId(consumerInfo.producerId);
+  if (!producerPeerId) {
+    log('WARN', 'resumeExistingConsumer: 找不到 peerId, producerId=' +
+      consumerInfo.producerId.slice(0,8), 'ci');
+    return;
+  }
+  removeRemoteVideo(producerPeerId);
+  await subscribeToProducer(producerPeerId, consumerInfo.producerId, consumerInfo.kind);
+}
+
+// 根据 producerId 反查 peerId（从 remotePeers 里找）
+function findPeerIdByProducerId(producerId) {
+  for (const [peerId, peer] of remotePeers) {
+    if ((peer.producers || []).some(p => p.id === producerId)) {
+      return peerId;
+    }
+  }
+  return null;
+}
+
+async function joinFlow() {
+  // Step 2：获取 Router 能力
+  setFlow(2);
+  log('STEP', '获取 Router RTP 能力...', 'cp');
+  const capResp = await wsRequest(
+    { type:'getRouterRtpCapabilities', roomId:myRoomId },
+    'routerRtpCapabilities'
+  );
+  device = new mediasoupClient.Device();
+  await device.load({ routerRtpCapabilities: capResp.rtpCapabilities });
+  log('MEDIA', '✓ Device 初始化 codecs=' +
+    device.rtpCapabilities.codecs.map(c=>c.mimeType).join('/'), 'cm');
+
+  // Step 3：加入房间
+  setFlow(3);
+  log('STEP', '加入房间 [' + myRoomId + ']...', 'cp');
+  const joinResp = await wsRequest({
+    type:            'join',
+    roomId:          myRoomId,
+    peerId:          myPeerId,
+    rtpCapabilities: device.rtpCapabilities,
+  }, 'joined');
+
+  log('ROOM', '✓ 加入成功，已有 ' + joinResp.existingPeers.length + ' 人', 'cr');
+  document.getElementById('roomLabel').textContent = myRoomId;
+
+  joinResp.existingPeers.forEach(p => remotePeers.set(p.id, p));
+  addPeerToList(myPeerId, true);
+  joinResp.existingPeers.forEach(p => addPeerToList(p.id, false));
+
+  // Step 4：创建 Transport
+  setFlow(4);
+  await createSendTransport();
+  await createRecvTransport();
+  log('STEP', '✓ Transport 就绪', 'cp');
+
+  // Step 5：开启控制按钮
+  setFlow(5);
+  ['btnCam','btnMic','btnLeave','btnIceRestart'].forEach(id =>
+    document.getElementById(id).disabled = false
+  );
+
+  // Step 6：订阅已有成员
+  if (joinResp.existingPeers.length > 0) {
+    setFlow(6);
+    for (const peer of joinResp.existingPeers) {
+      for (const producer of peer.producers || []) {
+        await subscribeToProducer(peer.id, producer.id, producer.kind);
+      }
+    }
+  }
+
+  setFlow(7);
+  log('STEP', '✓ 通话就绪', 'cp');
+
+  // 开启统计监控
+  startMonitor();
+}
+
+// ══════════════════════════════════════════════════════
+//  Transport
+// ══════════════════════════════════════════════════════
+async function createSendTransport() {
+  const resp = await wsRequest({ type:'createTransport', direction:'send' }, 'transportCreated');
+  sendTransport = device.createSendTransport(resp.transportOptions);
+  log('TRANS', 'sendTransport id=' + sendTransport.id.slice(0,8), 'ci');
+
+  sendTransport.on('connect', async ({ dtlsParameters }, cb, eb) => {
+    try {
+      await wsRequest({ type:'connectTransport', transportId:sendTransport.id, dtlsParameters }, 'transportConnected');
+      cb();
+    } catch(e) { eb(e); }
+  });
+
+  sendTransport.on('produce', async ({ kind, rtpParameters, appData }, cb, eb) => {
+    try {
+      const r = await wsRequest({ type:'produce', transportId:sendTransport.id, kind, rtpParameters, appData }, 'produced');
+      cb({ id:r.id });
+    } catch(e) { eb(e); }
+  });
+
+  sendTransport.on('connectionstatechange', (state) => {
+    log('TRANS', 'send ' + state, 'ci');
+    if (state === 'failed' || state === 'disconnected') {
+      handleTransportIceState(sendTransport.id, state);
+    }
+    if (state === 'connected') {
+      handleTransportIceState(sendTransport.id, 'connected');
+    }
+  });
+}
+
+async function createRecvTransport() {
+  const resp = await wsRequest({ type:'createTransport', direction:'recv' }, 'transportCreated');
+  recvTransport = device.createRecvTransport(resp.transportOptions);
+  log('TRANS', 'recvTransport id=' + recvTransport.id.slice(0,8), 'ci');
+
+  recvTransport.on('connect', async ({ dtlsParameters }, cb, eb) => {
+    try {
+      await wsRequest({ type:'connectTransport', transportId:recvTransport.id, dtlsParameters }, 'transportConnected');
+      cb();
+    } catch(e) { eb(e); }
+  });
+
+  recvTransport.on('connectionstatechange', (state) => {
+    log('TRANS', 'recv ' + state, 'ci');
+    if (state === 'connected') {
+      enableLayerButtons();
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════
+//  媒体发布
+// ══════════════════════════════════════════════════════
+async function toggleCam() {
+  const btn = document.getElementById('btnCam');
+  if (!camOn) {
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({
+        video:{ width:1280, height:720, frameRate:30 }, audio:false
+      });
+      updateLocalVideo();
+      camProducer = await sendTransport.produce({
+        track: camStream.getVideoTracks()[0],
+        encodings:[
+          { rid:'l', maxBitrate:100_000, scaleResolutionDownBy:4 },
+          { rid:'m', maxBitrate:300_000, scaleResolutionDownBy:2 },
+          { rid:'h', maxBitrate:900_000 },
+        ],
+        codecOptions:{ videoGoogleStartBitrate:1000 },
+        appData:{ type:'camera' }
+      });
+      camOn=true; btn.textContent='关闭摄像头'; btn.className='red';
+      updatePeerTracks(myPeerId,'video',true);
+      log('MEDIA', '✓ 摄像头 Producer id=' + camProducer.id.slice(0,8), 'cm');
+
+      camProducer.on('score', (score) => {
+        const min = Array.isArray(score) ? Math.min(...score.map(s=>s.score)) : score.score;
+        if (min < 3) log('WARN', 'Producer 质量过低 score=' + min, 'ce');
+      });
+
+    } catch(err) { log('ERR', '摄像头: ' + err.message, 'ce'); }
+  } else {
+    camProducer?.close(); camStream?.getTracks().forEach(t=>t.stop());
+    camProducer=null; camStream=null; camOn=false;
+    btn.textContent='开启摄像头'; btn.className='orange';
+    updateLocalVideo(); updatePeerTracks(myPeerId,'video',false);
+    log('MEDIA', '摄像头关闭', 'cm');
+  }
+}
+
+async function toggleMic() {
+  const btn = document.getElementById('btnMic');
+  if (!micOn) {
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true },
+        video:false
+      });
+      micProducer = await sendTransport.produce({
+        track: micStream.getAudioTracks()[0],
+        appData:{ type:'microphone' }
+      });
+      micOn=true; btn.textContent='关闭麦克风'; btn.className='red';
+      document.getElementById('btnMute').disabled=false;
+      updatePeerTracks(myPeerId,'audio',true);
+      log('MEDIA', '✓ 麦克风 Producer id=' + micProducer.id.slice(0,8), 'cm');
+    } catch(err) { log('ERR', '麦克风: ' + err.message, 'ce'); }
+  } else {
+    micProducer?.close(); micStream?.getTracks().forEach(t=>t.stop());
+    micProducer=null; micStream=null; micOn=false; muted=false;
+    btn.textContent='开启麦克风'; btn.className='orange';
+    document.getElementById('btnMute').disabled=true;
+    document.getElementById('btnMute').textContent='静音';
+    updatePeerTracks(myPeerId,'audio',false);
+    log('MEDIA', '麦克风关闭', 'cm');
+  }
+}
+
+function toggleMute() {
+  if (!micStream) return;
+  muted = !muted;
+  micStream.getAudioTracks().forEach(t => t.enabled = !muted);
+  document.getElementById('btnMute').textContent = muted ? '取消静音' : '静音';
+  log('MEDIA', '麦克风 → ' + (muted ? '静音' : '恢复'), 'cm');
+}
+
+// ══════════════════════════════════════════════════════
+//  订阅远端流
+// ══════════════════════════════════════════════════════
+async function subscribeToProducer(producerPeerId, producerId, kind) {
+  log('STEP', '订阅 peer=' + producerPeerId + ' kind=' + kind, 'cp');
+  setFlow(6);
+
+  const resp = await wsRequest({
+    type:'consume', producerPeerId, producerId
+  }, 'consumed');
+
+  if (!resp || resp.type === 'consumeFailed') {
+    log('ERR', '订阅失败 producerId=' + producerId, 'ce');
+    return;
+  }
+
+  const consumer = await recvTransport.consume({
+    id:resp.id, producerId:resp.producerId,
+    kind:resp.kind, rtpParameters:resp.rtpParameters,
+  });
+  consumers.set(consumer.id, consumer);
+  log('MEDIA', '✓ Consumer kind=' + consumer.kind + ' id=' + consumer.id.slice(0,8), 'cm');
+
+  if (consumer.kind === 'video') addRemoteVideo(producerPeerId, consumer.track);
+  else                           addRemoteAudio(producerPeerId, consumer.track);
+
+  await wsRequest({ type:'resumeConsumer', consumerId:consumer.id }, 'consumerResumed');
+  log('MEDIA', '✓ 开始接收 ' + consumer.kind, 'cm');
+
+  consumer.on('transportclose', () => {
+    consumers.delete(consumer.id);
+    removeRemoteVideo(producerPeerId);
+  });
+}
+
+// ══════════════════════════════════════════════════════
+//  Simulcast 层切换
+// ══════════════════════════════════════════════════════
+function enableLayerButtons() {
+  ['btnLayerH','btnLayerM','btnLayerL','btnAuto'].forEach(id =>
+    document.getElementById(id).disabled = false
+  );
+}
+
+async function setLayer(spatialLayer) {
+  autoLayer = spatialLayer === -1;
+  if (autoLayer) {
+    log('STEP', '自动层选择开启', 'cp');
+    document.getElementById('btnAuto').className = 'green';
+    return;
+  }
+  document.getElementById('btnAuto').className = '';
+  currentLayer = spatialLayer;
+  const names = ['低清','中清','高清'];
+  log('STEP', '手动切换 → ' + names[spatialLayer], 'cp');
+  for (const [id, consumer] of consumers) {
+    if (consumer.kind !== 'video') continue;
+    await wsRequest({
+      type:'setPreferredLayers', consumerId:id,
+      spatialLayer, temporalLayer:2,
+    }, 'preferredLayersSet').catch(()=>{});
+  }
+}
+
+async function autoAdjustLayer(consumerId, score) {
+  if (!autoLayer) return;
+  const s = Array.isArray(score) ? Math.min(...score.map(x=>x.score)) : score?.score;
+  if (s === undefined) return;
+  const target = s >= 8 ? 2 : s >= 5 ? 1 : 0;
+  if (target !== currentLayer) {
+    currentLayer = target;
+    wsSend({ type:'setPreferredLayers', consumerId, spatialLayer:target, temporalLayer:2 });
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  性能监控
+// ══════════════════════════════════════════════════════
+function startMonitor() {
+  if (monitorTimer) return;
+  document.getElementById('monitorStatus').textContent = '监控中';
+  document.getElementById('monitorStatus').style.color = 'var(--green)';
+  monitorTimer = setInterval(collectAndUpdate, 2000);
+  log('STEP', '✓ 性能监控已启动（2s间隔）', 'cp');
+}
+
+async function collectAndUpdate() {
+  const snapshot = { timestamp:Date.now(), send:{}, recv:{} };
+
+  // ── 发送端统计 ──
+  if (camProducer) {
+    try {
+      const stats = await camProducer.getStats();
+      stats.forEach(r => {
+        if (r.type === 'outbound-rtp' && r.kind === 'video') {
+          snapshot.send = {
+            bytesSent:    r.bytesSent,
+            packetsSent:  r.packetsSent,
+            retransmitted:r.retransmittedPacketsSent || 0,
+            framesEncoded:r.framesEncoded,
+            keyFrames:    r.keyFramesEncoded,
+            qualityLimit: r.qualityLimitationReason || 'none',
+          };
+        }
+        if (r.type === 'remote-inbound-rtp') {
+          snapshot.send.rtt       = Math.round((r.roundTripTime||0)*1000);
+          snapshot.send.lostSend  = r.packetsLost;
+          snapshot.send.jitterSend= Math.round((r.jitter||0)*1000);
+        }
+      });
+    } catch(e) {}
+  }
+
+  // ── 接收端统计 ──
+  for (const [, consumer] of consumers) {
+    if (consumer.kind !== 'video') continue;
+    try {
+      const stats = await consumer.getStats();
+      stats.forEach(r => {
+        if (r.type === 'inbound-rtp') {
+          const total = (r.packetsReceived||0) + (r.packetsLost||0);
+          snapshot.recv = {
+            bytesReceived: r.bytesReceived,
+            packetsLost:   r.packetsLost || 0,
+            lossRate:      total > 0 ? (r.packetsLost/total*100).toFixed(2) : '0.00',
+            jitter:        Math.round((r.jitter||0)*1000),
+            jitterBuf:     r.jitterBufferEmittedCount > 0
+              ? Math.round(r.jitterBufferDelay/r.jitterBufferEmittedCount*1000) : 0,
+            nackCount:     r.nackCount || 0,
+            pliCount:      r.pliCount  || 0,
+            firCount:      r.firCount  || 0,
+            fps:           Math.round(r.framesPerSecond || 0),
+            framesDecoded: r.framesDecoded,
+            framesDropped: r.framesDropped || 0,
+            freezeCount:   r.freezeCount || 0,
+            width:         r.frameWidth,
+            height:        r.frameHeight,
+          };
+        }
+      });
+    } catch(e) {}
+    break;
+  }
+
+  statsHistory.push(snapshot);
+  if (statsHistory.length > MAX_HISTORY) statsHistory.shift();
+
+  updateStatsUI(snapshot);
+  detectAnomalies(snapshot);
+}
+
+function updateStatsUI(s) {
+  const r = s.recv;
+  if (!r.lossRate) return;
+
+  // 丢包率
+  const lossEl = document.getElementById('sLoss');
+  lossEl.textContent = r.lossRate + '%';
+  lossEl.className   = 'stat-val' +
+    (r.lossRate > 10 ? ' crit' : r.lossRate > 5 ? ' warn' : '');
+
+  // RTT
+  const rttEl = document.getElementById('sRtt');
+  rttEl.textContent = (s.send.rtt || '—') + 'ms';
+  rttEl.className   = 'stat-val' +
+    ((s.send.rtt||0) > 300 ? ' crit' : (s.send.rtt||0) > 150 ? ' warn' : '');
+
+  // Jitter Buffer
+  const jEl = document.getElementById('sJitter');
+  jEl.textContent = r.jitterBuf + 'ms';
+  jEl.className   = 'stat-val' +
+    (r.jitterBuf > 300 ? ' crit' : r.jitterBuf > 100 ? ' warn' : '');
+
+  // 帧率
+  const fEl = document.getElementById('sFps');
+  fEl.textContent = r.fps + 'fps';
+  fEl.className   = 'stat-val' +
+    (r.fps < 10 ? ' crit' : r.fps < 20 ? ' warn' : '');
+
+  document.getElementById('sNack').textContent = r.nackCount;
+  document.getElementById('sPli').textContent  = r.pliCount;
+
+  // 码率限制原因
+  const qlEl = document.getElementById('sQLimit');
+  qlEl.textContent = s.send.qualityLimit || '—';
+  qlEl.className   = 'stat-val' +
+    (s.send.qualityLimit === 'bandwidth' ? ' warn' :
+     s.send.qualityLimit === 'cpu'       ? ' warn' : '');
+}
+
+// 异常检测 + 自动响应
+function detectAnomalies(s) {
+  const r = s.recv;
+  if (!r.lossRate) return;
+
+  const loss = parseFloat(r.lossRate);
+
+  // ── 丢包率阈值 → 触发层切换 ──
+  if (autoLayer) {
+    if (loss > 15) {
+      log('WARN', '丢包 ' + loss + '% > 15%，切低清层', 'ce');
+      setLayer(0);
+    } else if (loss > 8) {
+      log('WARN', '丢包 ' + loss + '% > 8%，切中清层', 'ci');
+      setLayer(1);
+    }
+  }
+
+  // ── Jitter Buffer 过大 ──
+  if (r.jitterBuf > 300) {
+    log('WARN', 'JitterBuffer=' + r.jitterBuf + 'ms，网络抖动严重', 'ci');
+  }
+
+  // ── 帧率骤降 ──
+  if (r.fps > 0 && r.fps < 10) {
+    log('WARN', '帧率骤降 ' + r.fps + 'fps', 'ce');
+  }
+
+  // ── PLI 突增（画面花屏）──
+  if (statsHistory.length >= 2) {
+    const prev = statsHistory[statsHistory.length-2];
+    const pliDelta = r.pliCount - (prev.recv.pliCount||0);
+    if (pliDelta > 3) {
+      log('WARN', 'PLI 突增 +' + pliDelta + '，画面可能花屏', 'ce');
+    }
+  }
+
+  // ── 画面冻结 ──
+  if (r.freezeCount > 0 && statsHistory.length >= 2) {
+    const prev = statsHistory[statsHistory.length-2];
+    const freezeDelta = r.freezeCount - (prev.recv.freezeCount||0);
+    if (freezeDelta > 0) {
+      log('WARN', '画面冻结 +' + freezeDelta + ' 次', 'ci');
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  导出测试报告
+// ══════════════════════════════════════════════════════
+function exportReport() {
+  if (statsHistory.length === 0) {
+    log('ERR', '暂无统计数据', 'ce'); return;
+  }
+  const losses  = statsHistory.map(s => parseFloat(s.recv.lossRate||0));
+  const rtts    = statsHistory.map(s => s.send.rtt||0);
+  const jitters = statsHistory.map(s => s.recv.jitter||0);
+  const fpss    = statsHistory.map(s => s.recv.fps||0);
+  const avg = arr => arr.length ? (arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(2) : 0;
+  const max = arr => arr.length ? Math.max(...arr).toFixed(2) : 0;
+
+  const report = {
+    meta: {
+      exportTime: new Date().toISOString(),
+      roomId:     myRoomId,
+      peerId:     myPeerId,
+      duration:   statsHistory.length * 2 + 's',
+      samples:    statsHistory.length,
+    },
+    summary: {
+      avgLossRate:  avg(losses)  + '%',
+      maxLossRate:  max(losses)  + '%',
+      avgRtt:       avg(rtts)    + 'ms',
+      maxRtt:       max(rtts)    + 'ms',
+      avgJitter:    avg(jitters) + 'ms',
+      avgFps:       avg(fpss)    + 'fps',
+      minFps:       Math.min(...fpss.filter(f=>f>0)) + 'fps',
+      totalNack:    statsHistory.at(-1)?.recv.nackCount || 0,
+      totalPli:     statsHistory.at(-1)?.recv.pliCount  || 0,
+      totalFreezes: statsHistory.at(-1)?.recv.freezeCount || 0,
+    },
+    raw: statsHistory,
+  };
+
+  const blob = new Blob([JSON.stringify(report, null, 2)], { type:'application/json' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = 'webrtc-report-' + Date.now() + '.json';
+  a.click();
+  log('STEP', '✓ 报告导出完成 samples=' + statsHistory.length, 'cp');
+}
+
+// ══════════════════════════════════════════════════════
+//  视频 UI
+// ══════════════════════════════════════════════════════
+function updateLocalVideo() {
+  let vbox = document.getElementById('vbox-local');
+  if (!vbox) {
+    vbox = makeVbox('local', '我 (' + myPeerId + ')');
+    document.getElementById('vgrid').appendChild(vbox);
+  }
+  const v = vbox.querySelector('video');
+  v.srcObject = camStream ? new MediaStream(camStream.getVideoTracks()) : null;
+  updateGrid();
+}
+
+function addRemoteVideo(peerId, track) {
+  let vbox = document.getElementById('vbox-' + peerId);
+  if (!vbox) {
+    vbox = makeVbox(peerId, peerId);
+    document.getElementById('vgrid').appendChild(vbox);
+    updateGrid();
+  }
+  const v = vbox.querySelector('video');
+  if (!v.srcObject) v.srcObject = new MediaStream([track]);
+  else              v.srcObject.addTrack(track);
+  vbox.querySelector('.vstate').textContent = '接收中';
+}
+
+function addRemoteAudio(peerId, track) {
+  const vbox = document.getElementById('vbox-' + peerId);
+  if (vbox) {
+    const v = vbox.querySelector('video');
+    if (!v.srcObject) v.srcObject = new MediaStream([track]);
+    else              v.srcObject.addTrack(track);
+  } else {
+    const a = document.createElement('audio');
+    a.id = 'audio-' + peerId; a.autoplay = true;
+    a.srcObject = new MediaStream([track]);
+    document.body.appendChild(a);
+  }
+}
+
+function removeRemoteVideo(peerId) {
+  document.getElementById('vbox-' + peerId)?.remove();
+  document.getElementById('audio-' + peerId)?.remove();
+  updateGrid();
+}
+
+function makeVbox(peerId, label) {
+  const d = document.createElement('div');
+  d.className = 'vbox'; d.id = 'vbox-' + peerId;
+  d.innerHTML =
+    '<video autoplay ' + (peerId==='local'?'muted ':'') + 'playsinline></video>' +
+    '<div class="vlabel">' + label + '</div>' +
+    '<div class="vstate">—</div>' +
+    '<div class="qbadge" id="q-' + peerId + '">—</div>' +
+    '<div class="ice-overlay" id="ice-' + peerId + '">重连中...</div>';
+  return d;
+}
+
+function updateGrid() {
+  const grid = document.getElementById('vgrid');
+  const n    = Math.max(1, grid.children.length);
+  grid.className = 'vgrid n' + Math.min(n, 6);
+}
+
+// ══════════════════════════════════════════════════════
+//  参与者列表 UI
+// ══════════════════════════════════════════════════════
+function addPeerToList(peerId, isLocal) {
+  const list = document.getElementById('peerList');
+  const item = document.createElement('div');
+  item.className = 'peer-item'; item.id = 'pi-' + peerId;
+  item.innerHTML =
+    '<div class="pdot ' + (isLocal?'local':'') + '" id="pdot-' + peerId + '"></div>' +
+    '<div class="pname">' + peerId + (isLocal?' (我)':'') + '</div>' +
+    '<div class="ptracks" id="pt-' + peerId + '">—</div>';
+  list.appendChild(item);
+  updatePeerCount();
+}
+
+function removePeerFromList(peerId) {
+  document.getElementById('pi-' + peerId)?.remove();
+  updatePeerCount();
+}
+
+function updatePeerTracks(peerId, kind, active) {
+  const el = document.getElementById('pt-' + peerId);
+  if (!el) return;
+  const cur = el.textContent === '—' ? [] : el.textContent.split(' ');
+  if (active) { if (!cur.includes(kind)) cur.push(kind); }
+  else { const i = cur.indexOf(kind); if (i>-1) cur.splice(i,1); }
+  el.textContent = cur.length ? cur.join(' ') : '—';
+}
+
+function updatePeerCount() {
+  const n = document.getElementById('peerList').children.length;
+  document.getElementById('peerCount').textContent = n + '人';
+}
+
+// ══════════════════════════════════════════════════════
+//  离开
+// ══════════════════════════════════════════════════════
+function doLeave() {
+  if (monitorTimer) { clearInterval(monitorTimer); monitorTimer=null; }
+  clearTimeout(iceRestartTimer);
+  clearTimeout(wsReconnectTimer);
+
+  // 主动离开：清空 peerId/roomId，防止 ws.onclose 触发重连
+  myPeerId = '';
+  myRoomId = '';
+  isReconnecting = false;
+  wsReconnectCount = 0;
+
+  camProducer?.close(); micProducer?.close();
+  camStream?.getTracks().forEach(t=>t.stop());
+  micStream?.getTracks().forEach(t=>t.stop());
+  consumers.forEach(c=>c.close());
+  sendTransport?.close(); recvTransport?.close();
+  ws?.close();
+
+  device=null; sendTransport=null; recvTransport=null;
+  camProducer=null; micProducer=null;
+  camStream=null; micStream=null;
+  consumers.clear(); remotePeers.clear();
+  statsHistory.length=0;
+  camOn=false; micOn=false; muted=false;
+  reconnectAttempts=0;
+
+  document.getElementById('vgrid').innerHTML='';
+  document.getElementById('peerList').innerHTML='';
+  updateGrid();
+  document.getElementById('roomLabel').textContent='—';
+  document.getElementById('iceLabel').textContent='ICE: —';
+  document.getElementById('wsDot').className='wdot';
+  document.getElementById('wsLabel').textContent='未连接';
+  document.getElementById('monitorStatus').textContent='未监控';
+  document.getElementById('monitorStatus').style.color='var(--dim)';
+
+  ['sLoss','sRtt','sJitter','sFps','sNack','sPli','sLayer','sQLimit']
+    .forEach(id => { const el=document.getElementById(id); el.textContent='—'; el.className='stat-val'; });
+
+  document.getElementById('btnJoin').disabled=false;
+  ['btnCam','btnMic','btnMute','btnLeave','btnLayerH','btnLayerM',
+   'btnLayerL','btnAuto','btnIceRestart'].forEach(id =>
+    document.getElementById(id).disabled=true
+  );
+  document.getElementById('btnCam').textContent='开启摄像头';
+  document.getElementById('btnCam').className='orange';
+  document.getElementById('btnMic').textContent='开启麦克风';
+  document.getElementById('btnMic').className='orange';
+
+  setFlow(1);
+  log('STEP', '✓ 已离开会议', 'cp');
+}
+
+// 启动提示
+log('WS',   '═══ Stage 3 · mediasoup SFU ═══', 'cp');
+log('ROOM', '填写信息后点「加入会议」', 'cr');
+setFlow(1);
+
+window.doJoin = doJoin;
+window.toggleCam = toggleCam;
+window.toggleMic = toggleMic;
+window.toggleMute = toggleMute;
+window.doLeave = doLeave;
+window.setLayer = setLayer;
+window.doIceRestart = doIceRestart;
+window.exportReport = exportReport;
+window.clearLog = clearLog;
+</script>
+</body>
+</html>
